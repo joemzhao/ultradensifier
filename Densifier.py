@@ -52,6 +52,10 @@ class Densifier(object):
     def gradient(self, ew, ev):
         v = (ew - ev).reshape(self.d, 1)
         # need to assert, but barely happen
+        if self.step_loss(ew, ev) == 0.:
+            print ("WARNING: check if there are replicated seed words!")
+            print ("         grad set to 0.")
+            return np.matrix(np.zeros((self.d, self.d)))
         return self.D * self.Q * v * np.transpose(v) / self.step_loss(ew, ev)
 
     def train(self, num_epoch, pos_vecs, neg_vecs, save_to, save_every):
