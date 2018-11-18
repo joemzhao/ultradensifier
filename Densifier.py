@@ -43,20 +43,20 @@ class Densifier(object):
 
     def step_loss(self, ew, ev):
         combine_key = (id(ew), id(ev))
+        vec_diff = (ew - ev).reshape(self.d, 1)
         if combine_key in self.loss: return self.loss[combine_key]
         self.loss[combine_key] = np.linalg.norm(
-                                 self.P * self.Q * (ew - ev).reshape(self.d, 1),
+                                 self.P * self.Q * vec_diff,
                                  ord=2)
-        return self.loss[combine_key]
+        return self.loss[combine_key], vec_diff
 
     def gradient(self, ew, ev):
-        v = (ew - ev).reshape(self.d, 1)
-        # need to assert, but barely happen
-        if self.step_loss(ew, ev) == 0.:
+        step_loss, vec_diff = self.step_loss(ew, ev)
+        if step_loss == 0.:
             print ("WARNING: check if there are replicated seed words!")
             print ("         grad set to 0.")
             return np.matrix(np.zeros((self.d, self.d)))
-        return self.D * self.Q * v * np.transpose(v) / self.step_loss(ew, ev)
+        return self.D * self.Q * vec_diff * np.transpose(vec_diff) / step_loss
 
     def train(self, num_epoch, pos_vecs, neg_vecs, save_to, save_every):
         bs = self.batch_size
@@ -75,8 +75,8 @@ class Densifier(object):
                 steps_orth += 1
                 steps_print += 1
                 save_step += 1
-                diff_loss = np.mean(list(itertools.starmap(self.step_loss, mini_diff)))
-                same_loss = np.mean(list(itertools.starmap(self.step_loss, mini_same)))
+                diff_loss, _ = np.mean(list(itertools.starmap(self.step_loss, mini_diff)))
+                same_loss, _ = np.mean(list(itertools.starmap(self.step_loss, mini_same)))
                 diff_grad = np.matrix(np.zeros((self.d, self.d)))
                 same_grad = np.matrix(np.zeros((self.d, self.d)))
                 for ew, ev in mini_diff:
