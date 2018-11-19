@@ -8,14 +8,12 @@ import tqdm
 
 def parse_words():
     pos, neg = [], []
-    with open("sentiment-lx/positive-words.txt", "r") as f:
+    with open("sentiment-lx/mypos.txt", "r") as f:
         for line in f.readlines():
-            if line[0] == ";": continue
-            pos.append(line.strip()+"@bib")
-    with open("sentiment-lx/negative-words.txt", "r") as f:
+            pos.append(line.strip())
+    with open("sentiment-lx/myneg.txt", "r") as f:
         for line in f.readlines():
-            if line[0] == ";": continue
-            neg.append(line.strip()+"@bib")
+            neg.append(line.strip())
     return pos, neg
 
 
@@ -36,6 +34,7 @@ class Densifier(object):
         self.Q = np.matrix(scipy.stats.ortho_group.rvs(d, random_state=seed))
         self.P = np.matrix(np.eye(ds, d))
         self.D = np.transpose(self.P) * self.P
+        self.zeros_d = np.matrix(np.zeros((self.d, self.d)))
         self.loss = {}
         self.lr = lr
         self.batch_size = batch_size
@@ -55,15 +54,17 @@ class Densifier(object):
         if step_loss == 0.:
             print ("WARNING: check if there are replicated seed words!")
             print ("         grad set to 0.")
-            return np.matrix(np.zeros((self.d, self.d)))
-        return self.D * self.Q * vec_diff * np.transpose(vec_diff) / step_loss
+            return self.zeros_d, 0.
+        return self.D * self.Q * vec_diff * np.transpose(vec_diff) / step_loss, step_loss
 
     def train(self, num_epoch, pos_vecs, neg_vecs, save_to, save_every):
         bs = self.batch_size
+        save_step = 0
+
         diff_ps = list(itertools.product(pos_vecs, neg_vecs))
         same_ps = list(itertools.combinations(pos_vecs, 2)) + \
                   list(itertools.combinations(neg_vecs, 2))
-        save_step = 0
+
         for e in xrange(num_epoch):
             random.shuffle(diff_ps)
             random.shuffle(same_ps)
@@ -71,34 +72,45 @@ class Densifier(object):
             steps_print = 0
             steps_same_loss, steps_diff_loss = [], []
             steps_same_grad, steps_diff_grad = [], []
+
             for (mini_diff, mini_same) in zip(batches(diff_ps, bs), batches(same_ps, bs)):
                 steps_orth += 1
                 steps_print += 1
                 save_step += 1
-                diff_loss, _ = np.mean(list(itertools.starmap(self.step_loss, mini_diff)))
-                same_loss, _ = np.mean(list(itertools.starmap(self.step_loss, mini_same)))
+
                 diff_grad = np.matrix(np.zeros((self.d, self.d)))
                 same_grad = np.matrix(np.zeros((self.d, self.d)))
+
+                batch_diff_loss = []
+                batch_same_loss = []
                 for ew, ev in mini_diff:
-                    diff_grad += self.gradient(ew, ev)
+                    diff_gred_step, diff_loss_step = self.gradient(ew, ev)
+                    diff_grad += diff_gred_step
+                    batch_diff_loss.append(diff_loss_step)
+
                 for ew, ev in mini_same:
-                    same_grad += self.gradient(ew, ev)
+                    same_grad_step, same_loss_step = self.gradient(ew, ev)
+                    same_grad += same_grad_step
+                    batch_same_loss.append(same_loss_step)
+
                 diff_grad /= len(mini_diff)
                 same_grad /= len(mini_same)
                 self.Q -= self.lr * (self.alpha * (-diff_grad) + (1.-self.alpha) * same_grad)
+
                 steps_same_grad.append(same_grad)
                 steps_diff_grad.append(diff_grad)
-                steps_same_loss.append(same_loss)
-                steps_diff_loss.append(diff_loss)
+                steps_same_loss.append(np.mean(same_loss))
+                steps_diff_loss.append(np.mean(diff_loss))
+
                 self.lr *= 0.99
+
                 if steps_print % 1 == 0:
-                    #self.lr *= 0.99
                     print ("=" * 25)
-                    print ("Diff-grad: {:4f}, Same-grad: {:4f}".format(
-                    np.linalg.norm(steps_same_grad), np.linalg.norm(steps_diff_grad)))
+                    # print ("Diff-grad: {:4f}, Same-grad: {:4f}".format(
+                    # np.linalg.norm(steps_same_grad), np.linalg.norm(steps_diff_grad)))
+                    # steps_same_grad, steps_diff_grad = [], []
                     print ("Diff-loss: {:4f}, Same-loss: {:4f}, LR: {:4f}".format(
                     np.mean(steps_diff_loss), np.mean(steps_same_loss), self.lr))
-                    steps_same_grad, steps_diff_grad = [], []
                     steps_same_loss, steps_diff_loss = [], []
                 if steps_orth % 1 == 0:
                     self.Q = Densifier.make_orth(self.Q)
