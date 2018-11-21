@@ -41,13 +41,9 @@ class Densifier(object):
         self.alpha = 0.5
 
     def step_loss(self, ew, ev):
-        combine_key = (id(ew), id(ev))
         vec_diff = (ew - ev).reshape(self.d, 1)
-        if combine_key in self.loss: return self.loss[combine_key]
-        self.loss[combine_key] = np.linalg.norm(
-                                 self.P * self.Q * vec_diff,
-                                 ord=2)
-        return self.loss[combine_key], vec_diff
+        loss = np.linalg.norm(self.P * self.Q * vec_diff, ord=2)
+        return loss, vec_diff
 
     def gradient(self, ew, ev):
         step_loss, vec_diff = self.step_loss(ew, ev)
@@ -106,9 +102,6 @@ class Densifier(object):
 
                 if steps_print % 1 == 0:
                     print ("=" * 25)
-                    # print ("Diff-grad: {:4f}, Same-grad: {:4f}".format(
-                    # np.linalg.norm(steps_same_grad), np.linalg.norm(steps_diff_grad)))
-                    # steps_same_grad, steps_diff_grad = [], []
                     print ("Diff-loss: {:4f}, Same-loss: {:4f}, LR: {:4f}".format(
                     np.mean(steps_diff_loss), np.mean(steps_same_loss), self.lr))
                     steps_same_loss, steps_diff_loss = [], []
@@ -118,7 +111,6 @@ class Densifier(object):
                     self.save(save_to)
                     print ("Model saved! Step: {}".format(save_step))
             print ("="*25 + " one epoch finished! ({}) ".format(e) + "="*25)
-            self.loss = {}
         print ("Training finished ...")
         self.save(save_to)
 
