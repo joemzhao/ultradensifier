@@ -2,25 +2,32 @@ from __future__ import print_function
 from __future__ import division
 
 import os
-os.environ["MKL_NUM_THREADS"] = "20"
-os.environ["NUMEXPR_NUM_THREADS"] = "20"
-os.environ["OMP_NUM_THREADS"] = "20"
+os.environ["MKL_NUM_THREADS"] = "40"
+os.environ["NUMEXPR_NUM_THREADS"] = "40"
+os.environ["OMP_NUM_THREADS"] = "40"
 
 from helpers import *
 
 import tqdm
 import itertools
 import copy
+import time
 
 
-def parse_words():
+def parse_words(add_bib):
     pos, neg = [], []
     with open("sentiment-lx/mypos.txt", "r") as f:
         for line in f.readlines():
-            pos.append(line.strip())
+            if not add_bib:
+                pos.append(line.strip())
+            else:
+                pos.append(line.strip()+"@bib")
     with open("sentiment-lx/myneg.txt", "r") as f:
         for line in f.readlines():
-            neg.append(line.strip())
+            if not add_bib:
+                neg.append(line.strip())
+            else:
+                neg.append(line.strip()+"@bib")
     return pos, neg
 
 
@@ -42,7 +49,6 @@ class Densifier(object):
         self.P = np.matrix(np.eye(ds, d))
         self.D = np.transpose(self.P) * self.P
         self.zeros_d = np.matrix(np.zeros((self.d, self.d)))
-        self.loss = {}
         self.lr = lr
         self.batch_size = batch_size
         self.alpha = 0.5
@@ -57,19 +63,15 @@ class Densifier(object):
         if step_loss == 0.:
             print ("WARNING: check if there are replicated seed words!")
             print ("         grad set to 0.")
-            return self.zeros_d, 0.
-        myQ = copy.copy(self.zeros_d)
-        myQ[0, :] = self.Q[0, :]
-        return myQ * vec_diff * np.transpose(vec_diff) / step_loss, step_loss
+            return self.zeros_d[0, :], 0.
+        return self.Q[0, :] * vec_diff * np.transpose(vec_diff) / step_loss, step_loss
 
     def train(self, num_epoch, pos_vecs, neg_vecs, save_to, save_every):
         bs = self.batch_size
         save_step = 0
-
         diff_ps = list(itertools.product(pos_vecs, neg_vecs))
         same_ps = list(itertools.combinations(pos_vecs, 2)) + \
                   list(itertools.combinations(neg_vecs, 2))
-
         for e in xrange(num_epoch):
             random.shuffle(diff_ps)
             random.shuffle(same_ps)
@@ -77,36 +79,27 @@ class Densifier(object):
             steps_print = 0
             steps_same_loss, steps_diff_loss = [], []
             steps_same_grad, steps_diff_grad = [], []
-
             for (mini_diff, mini_same) in zip(batches(diff_ps, bs), batches(same_ps, bs)):
                 steps_orth += 1
                 steps_print += 1
                 save_step += 1
-
-                diff_grad = copy.copy(self.zeros_d)
-                same_grad = copy.copy(self.zeros_d)
-
-                batch_diff_loss = []
-                batch_same_loss = []
+                diff_grad, same_grad = [], []
+                batch_diff_loss, batch_same_loss = [], []
                 for ew, ev in mini_diff:
                     diff_gred_step, diff_loss_step = self.gradient(ew, ev)
-                    diff_grad += diff_gred_step
+                    diff_grad.append(diff_gred_step)
                     batch_diff_loss.append(diff_loss_step)
-
                 for ew, ev in mini_same:
                     same_grad_step, same_loss_step = self.gradient(ew, ev)
-                    same_grad += same_grad_step
+                    same_grad.append(same_grad_step)
                     batch_same_loss.append(same_loss_step)
-
-                diff_grad /= len(mini_diff)
-                same_grad /= len(mini_same)
-                self.Q -= self.lr * (self.alpha * (-diff_grad) + (1.-self.alpha) * same_grad)
-
+                diff_grad = np.mean(diff_grad, axis=0)
+                same_grad = np.mean(same_grad, axis=0)
+                self.Q[0, :] -= self.lr * (self.alpha * (-diff_grad) + (1.-self.alpha) * same_grad)
                 steps_same_grad.append(same_grad)
                 steps_diff_grad.append(diff_grad)
                 steps_same_loss.append(np.mean(batch_same_loss))
                 steps_diff_loss.append(np.mean(batch_diff_loss))
-
                 if steps_print % 10 == 0:
                     print ("=" * 25)
                     print ("Diff-loss: {:4f}, Same-loss: {:4f}, LR: {:4f}".format(
@@ -153,12 +146,14 @@ if __name__ == "__main__":
     parser.add_argument("--SAVE_TO", type=str, default="trained_densifier.pkl")
     args = parser.parse_args()
 
-    pos_words, neg_words = parse_words()
+    pos_words, neg_words = parse_words(add_bib=False)
     myword2vec = word2vec(args.EMB_SPACE)
     print ("Finish loading embedding ...")
 
     map(lambda x: random.shuffle(x), [pos_words, neg_words])
     pos_vecs, neg_vecs = map(lambda x: emblookup(x, myword2vec), [pos_words, neg_words])
+    pos_vecs = pos_vecs[:100]
+    neg_vecs = neg_vecs[:100]
     print (len(pos_vecs), len(neg_vecs))
 
     assert len(pos_vecs) > 0
