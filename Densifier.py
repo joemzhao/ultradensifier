@@ -2,9 +2,9 @@ from __future__ import print_function
 from __future__ import division
 
 import os
-os.environ["MKL_NUM_THREADS"] = "40"
-os.environ["NUMEXPR_NUM_THREADS"] = "40"
-os.environ["OMP_NUM_THREADS"] = "40"
+os.environ["MKL_NUM_THREADS"] = "30"
+os.environ["NUMEXPR_NUM_THREADS"] = "30"
+os.environ["OMP_NUM_THREADS"] = "30"
 
 from helpers import *
 
@@ -46,6 +46,7 @@ class Densifier(object):
         self.d = d
         self.ds = ds
         self.Q = np.matrix(scipy.stats.ortho_group.rvs(d, random_state=seed))
+        self.Q[1:, :] = 0.
         self.P = np.matrix(np.eye(ds, d))
         self.D = np.transpose(self.P) * self.P
         self.zeros_d = np.matrix(np.zeros((self.d, self.d)))
@@ -78,7 +79,6 @@ class Densifier(object):
             steps_orth = 0
             steps_print = 0
             steps_same_loss, steps_diff_loss = [], []
-            steps_same_grad, steps_diff_grad = [], []
             for (mini_diff, mini_same) in zip(batches(diff_ps, bs), batches(same_ps, bs)):
                 steps_orth += 1
                 steps_print += 1
@@ -95,21 +95,25 @@ class Densifier(object):
                     batch_same_loss.append(same_loss_step)
                 diff_grad = np.mean(diff_grad, axis=0)
                 same_grad = np.mean(same_grad, axis=0)
-                self.Q[0, :] -= self.lr * (self.alpha * (-diff_grad) + (1.-self.alpha) * same_grad)
-                steps_same_grad.append(same_grad)
-                steps_diff_grad.append(diff_grad)
+                self.Q[0, :] -= self.lr * (-1. * self.alpha * diff_grad + (1.-self.alpha) * same_grad)
                 steps_same_loss.append(np.mean(batch_same_loss))
                 steps_diff_loss.append(np.mean(batch_diff_loss))
-                if steps_print % 10 == 0:
+                if steps_print % 20 == 0:
                     print ("=" * 25)
-                    print ("Diff-loss: {:4f}, Same-loss: {:4f}, LR: {:4f}".format(
-                    np.mean(steps_diff_loss), np.mean(steps_same_loss), self.lr))
+                    try:
+                        print ("Diff-loss: {:4f}, Same-loss: {:4f}, LR: {:4f}".format(
+                        np.mean(steps_diff_loss), np.mean(steps_same_loss), self.lr))
+                    except:
+                        print (np.mean(steps_diff_loss))
+                        print (np.mean(steps_same_loss))
+                        print (self.lr)
                     steps_same_loss, steps_diff_loss = [], []
                 if steps_orth % 1 == 0:
                     self.Q = Densifier.make_orth(self.Q)
                 if save_step % save_every == 0:
                     self.save(save_to)
                     print ("Model saved! Step: {}".format(save_step))
+                self.lr *= 0.99
             print ("="*25 + " one epoch finished! ({}) ".format(e) + "="*25)
             self.lr *= 0.99
         print ("Training finished ...")
@@ -142,7 +146,7 @@ if __name__ == "__main__":
     parser.add_argument("--BIBLE_SEED_EMB", type=int, default=1)
     parser.add_argument("--BATCH_SIZE", type=int, default=100)
     parser.add_argument("--EMB_SPACE", type=str, default="embeddings/twitter_emb_400.vec")
-    parser.add_argument("--SAVE_EVERY", type=int, default=500)
+    parser.add_argument("--SAVE_EVERY", type=int, default=1000)
     parser.add_argument("--SAVE_TO", type=str, default="trained_densifier.pkl")
     args = parser.parse_args()
 
