@@ -2,9 +2,9 @@ from __future__ import print_function
 from __future__ import division
 
 import os
-os.environ["MKL_NUM_THREADS"] = "30"
-os.environ["NUMEXPR_NUM_THREADS"] = "30"
-os.environ["OMP_NUM_THREADS"] = "30"
+os.environ["MKL_NUM_THREADS"] = "40"
+os.environ["NUMEXPR_NUM_THREADS"] = "40"
+os.environ["OMP_NUM_THREADS"] = "40"
 
 from helpers import *
 
@@ -54,18 +54,11 @@ class Densifier(object):
         self.batch_size = batch_size
         self.alpha = 0.5
 
-    def step_loss(self, ew, ev):
-        vec_diff = (ew - ev).reshape(self.d, 1)
-        loss = abs(self.Q[0, :].dot(vec_diff)[0][0])
-        return loss, vec_diff
-
-    def gradient(self, ew, ev):
-        step_loss, vec_diff = self.step_loss(ew, ev)
-        if step_loss == 0.:
+    def _gradient(self, loss, vec_diff):
+        if loss == 0.:
             print ("WARNING: check if there are replicated seed words!")
-            print ("         grad set to 0.")
-            return self.zeros_d[0, :], 0.
-        return self.Q[0, :] * vec_diff * np.transpose(vec_diff) / step_loss, step_loss
+            return self.zeros_d[0, :]
+        return self.Q[0, :] * vec_diff * np.transpose(vec_diff) / loss
 
     def train(self, num_epoch, pos_vecs, neg_vecs, save_to, save_every):
         bs = self.batch_size
@@ -84,20 +77,33 @@ class Densifier(object):
                 steps_print += 1
                 save_step += 1
                 diff_grad, same_grad = [], []
-                batch_diff_loss, batch_same_loss = [], []
+
+                EW, EV = [], []
                 for ew, ev in mini_diff:
-                    diff_gred_step, diff_loss_step = self.gradient(ew, ev)
-                    diff_grad.append(diff_gred_step)
-                    batch_diff_loss.append(diff_loss_step)
+                    EW.append(np.asarray(ew))
+                    EV.append(np.asarray(ev))
+                VEC_DIFF = np.asarray(EW) - np.asarray(EV)
+                DIFF_LOSS = np.absolute(VEC_DIFF * self.Q[0, :].reshape(self.d,1))
+                for idx in range(len(EW)):
+                    diff_grad_step = self._gradient(DIFF_LOSS[idx][0,0], VEC_DIFF[idx].reshape(self.d, 1))
+                    diff_grad.append(diff_grad_step)
+
+                EW, EV = [], []
                 for ew, ev in mini_same:
-                    same_grad_step, same_loss_step = self.gradient(ew, ev)
+                    EW.append(np.asarray(ew))
+                    EV.append(np.asarray(ev))
+                VEC_SAME = np.asarray(EW) - np.asarray(EV)
+                SAME_LOSS = np.absolute(VEC_SAME * self.Q[0, :].reshape(self.d,1))
+                for idx in range(len(EW)):
+                    same_grad_step = self._gradient(SAME_LOSS[idx][0,0], VEC_SAME[idx].reshape(self.d, 1))
                     same_grad.append(same_grad_step)
-                    batch_same_loss.append(same_loss_step)
+
                 diff_grad = np.mean(diff_grad, axis=0)
                 same_grad = np.mean(same_grad, axis=0)
+
                 self.Q[0, :] -= self.lr * (-1. * self.alpha * diff_grad + (1.-self.alpha) * same_grad)
-                steps_same_loss.append(np.mean(batch_same_loss))
-                steps_diff_loss.append(np.mean(batch_diff_loss))
+                steps_same_loss.append(np.mean(SAME_LOSS))
+                steps_diff_loss.append(np.mean(DIFF_LOSS))
                 if steps_print % 20 == 0:
                     print ("=" * 25)
                     try:
@@ -108,14 +114,14 @@ class Densifier(object):
                         print (np.mean(steps_same_loss))
                         print (self.lr)
                     steps_same_loss, steps_diff_loss = [], []
-                if steps_orth % 1 == 0:
+                if steps_orth % 100 == 0:
                     self.Q = Densifier.make_orth(self.Q)
+                    self.lr *= 0.999
                 if save_step % save_every == 0:
                     self.save(save_to)
                     print ("Model saved! Step: {}".format(save_step))
-                self.lr *= 0.99
             print ("="*25 + " one epoch finished! ({}) ".format(e) + "="*25)
-            self.lr *= 0.99
+#            self.lr *= 0.99
         print ("Training finished ...")
         self.save(save_to)
 
@@ -145,22 +151,23 @@ if __name__ == "__main__":
     parser.add_argument("--OUT_DIM", type=int, default=1)
     parser.add_argument("--BIBLE_SEED_EMB", type=int, default=1)
     parser.add_argument("--BATCH_SIZE", type=int, default=100)
-    parser.add_argument("--EMB_SPACE", type=str, default="embeddings/twitter_emb_400.vec")
+    parser.add_argument("--EMB_SPACE", type=str, default="embeddings/mybible_400.vec")
     parser.add_argument("--SAVE_EVERY", type=int, default=1000)
     parser.add_argument("--SAVE_TO", type=str, default="trained_densifier.pkl")
     args = parser.parse_args()
 
-    pos_words, neg_words = parse_words(add_bib=False)
+    pos_words, neg_words = parse_words(add_bib=True)
     myword2vec = word2vec(args.EMB_SPACE)
     print ("Finish loading embedding ...")
 
     map(lambda x: random.shuffle(x), [pos_words, neg_words])
     pos_vecs, neg_vecs = map(lambda x: emblookup(x, myword2vec), [pos_words, neg_words])
-    pos_vecs = pos_vecs[:100]
-    neg_vecs = neg_vecs[:100]
+    pos_vecs = pos_vecs[:1000]
+    neg_vecs = neg_vecs[:1000]
     print (len(pos_vecs), len(neg_vecs))
 
     assert len(pos_vecs) > 0
     assert len(neg_vecs) > 0
     mydensifier = Densifier(400, args.OUT_DIM, args.LR, args.BATCH_SIZE)
     mydensifier.train(args.EPC, np.asarray(pos_vecs), np.asarray(neg_vecs), args.SAVE_TO, args.SAVE_EVERY)
+    # EET = np.einsum('ij,ik->ijk', VEC_DIFF, VEC_DIFF)
