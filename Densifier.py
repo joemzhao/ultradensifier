@@ -52,7 +52,7 @@ class Densifier(object):
         self.zeros_d = np.matrix(np.zeros((self.d, self.d)))
         self.lr = lr
         self.batch_size = batch_size
-        self.alpha = 0.5
+        self.alpha = 0.4
 
     def _gradient(self, loss, vec_diff):
         if loss == 0.:
@@ -104,7 +104,7 @@ class Densifier(object):
                 self.Q[0, :] -= self.lr * (-1. * self.alpha * diff_grad + (1.-self.alpha) * same_grad)
                 steps_same_loss.append(np.mean(SAME_LOSS))
                 steps_diff_loss.append(np.mean(DIFF_LOSS))
-                if steps_print % 20 == 0:
+                if steps_print % 10 == 0:
                     print ("=" * 25)
                     try:
                         print ("Diff-loss: {:4f}, Same-loss: {:4f}, LR: {:4f}".format(
@@ -114,7 +114,7 @@ class Densifier(object):
                         print (np.mean(steps_same_loss))
                         print (self.lr)
                     steps_same_loss, steps_diff_loss = [], []
-                if steps_orth % 100 == 0:
+                if steps_orth % 10 == 0:
                     self.Q = Densifier.make_orth(self.Q)
                     self.lr *= 0.999
                 if save_step % save_every == 0:
@@ -151,19 +151,19 @@ if __name__ == "__main__":
     parser.add_argument("--OUT_DIM", type=int, default=1)
     parser.add_argument("--BIBLE_SEED_EMB", type=int, default=1)
     parser.add_argument("--BATCH_SIZE", type=int, default=100)
-    parser.add_argument("--EMB_SPACE", type=str, default="embeddings/mybible_400.vec")
+    parser.add_argument("--EMB_SPACE", type=str, default="embeddings/twitter_emb_400.vec")
     parser.add_argument("--SAVE_EVERY", type=int, default=1000)
     parser.add_argument("--SAVE_TO", type=str, default="trained_densifier.pkl")
     args = parser.parse_args()
 
-    pos_words, neg_words = parse_words(add_bib=True)
+    pos_words, neg_words = parse_words(add_bib=False)
     myword2vec = word2vec(args.EMB_SPACE)
     print ("Finish loading embedding ...")
 
     map(lambda x: random.shuffle(x), [pos_words, neg_words])
     pos_vecs, neg_vecs = map(lambda x: emblookup(x, myword2vec), [pos_words, neg_words])
-    pos_vecs = pos_vecs[:1000]
-    neg_vecs = neg_vecs[:1000]
+    pos_vecs = pos_vecs[:100]
+    neg_vecs = neg_vecs[:100]
     print (len(pos_vecs), len(neg_vecs))
 
     assert len(pos_vecs) > 0
