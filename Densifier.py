@@ -2,9 +2,9 @@ from __future__ import print_function
 from __future__ import division
 
 import os
-os.environ["MKL_NUM_THREADS"] = "40"
-os.environ["NUMEXPR_NUM_THREADS"] = "40"
-os.environ["OMP_NUM_THREADS"] = "40"
+os.environ["MKL_NUM_THREADS"] = "30"
+os.environ["NUMEXPR_NUM_THREADS"] = "30"
+os.environ["OMP_NUM_THREADS"] = "30"
 
 from helpers import *
 
@@ -40,6 +40,8 @@ def batches(it, size=16):
             batch = []
     if len(batch) > 0: yield batch # yield the last several items
 
+E, EET = {}, {}
+E_bool, EET_bool = {}, {}
 
 class Densifier(object):
     def __init__(self, d, ds, lr, batch_size, seed=3):
@@ -55,14 +57,17 @@ class Densifier(object):
         self.alpha = 0.4
 
     def train(self, num_epoch, pos_vecs, neg_vecs, save_to, save_every):
+        global E, EET, E_bool, EET_bool
         bs = self.batch_size
         save_step = 0
         diff_ps = list(itertools.product(pos_vecs, neg_vecs))
         same_ps = list(itertools.combinations(pos_vecs, 2)) + \
                   list(itertools.combinations(neg_vecs, 2))
-        self.E, self.EET = {}, {} # EET is computed in the first pass
         for (ew, ev) in diff_ps+same_ps:
-            self.E[(id(ew), id(ev))] = np.asarray(ew) - np.asarray(ev)
+            mykey = str(id(ew)) + str(id(ev))
+            E[mykey] = np.asarray(ew) - np.asarray(ev)
+            EET_bool[mykey] = False
+
         for e in xrange(num_epoch):
             random.shuffle(diff_ps)
             random.shuffle(same_ps)
@@ -74,41 +79,47 @@ class Densifier(object):
                 steps_print += 1
                 save_step += 1
 
+                Q_row_1 = self.Q[0, :]
+                zero_row = self.zeros_d[0, :]
+                mytime = time.time()
                 VEC_DIFF, diff_grad= [], []
                 for (ew, ev) in mini_diff:
-                    VEC_DIFF.append(self.E[(id(ew), id(ev))])
+                    VEC_DIFF.append(E[str(id(ew)) + str(id(ev))])
                 VEC_DIFF = np.asarray(VEC_DIFF)
-                DIFF_LOSS = np.absolute(VEC_DIFF * self.Q[0, :].reshape(self.d,1))
+                DIFF_LOSS = np.absolute(VEC_DIFF * Q_row_1.reshape(self.d,1))
                 for idx, (ew, ev) in enumerate(mini_diff):
+                    mykey = str(id(ew)) + str(id(ev))
                     _loss = DIFF_LOSS[idx]
                     if _loss == 0:
-                        diff_grad.append(self.zeros_d[0, :])
+                        diff_grad.append(zero_row)
                         continue
-                    elif (id(ew), id(ev)) not in self.EET:
-                        _e = self.E[(id(ew), id(ev))].reshape(self.d, 1)
-                        self.EET[(id(ew), id(ev))] = _e * np.transpose(_e)
-                    _diff_step_grad = self.Q[0, :] * self.EET[(id(ew), id(ev))] / _loss
+                    elif not EET_bool[mykey]:
+                        _e = E[mykey].reshape(self.d, 1)
+                        EET_bool[mykey] = True
+                        EET[mykey] = _e * np.transpose(_e)
+                    _diff_step_grad = Q_row_1 * EET[mykey] / _loss
                     diff_grad.append(_diff_step_grad)
+                print ("Time ellapsed: {}".format(time.time()-mytime))
 
                 VEC_SAME, same_grad = [], []
                 for (ew, ev) in mini_same:
-                    VEC_SAME.append(self.E[(id(ew), id(ev))])
+                    VEC_SAME.append(E[str(id(ew)) + str(id(ev))])
                 VEC_SAME = np.asarray(VEC_SAME)
-                SAME_LOSS = np.absolute(VEC_SAME * self.Q[0, :].reshape(self.d,1))
+                SAME_LOSS = np.absolute(VEC_SAME * Q_row_1.reshape(self.d,1))
                 for idx, (ew, ev) in enumerate(mini_same):
+                    mykey = str(id(ew)) + str(id(ev))
                     _loss = SAME_LOSS[idx]
                     if _loss == 0:
-                        same_grad.append(self.zeros_d[0, :])
+                        same_grad.append(zero_row)
                         continue
-                    elif (id(ew), id(ev)) not in self.EET:
-                        _e = self.E[(id(ew), id(ev))].reshape(self.d, 1)
-                        self.EET[(id(ew), id(ev))] = _e * np.transpose(_e)
-                    _same_step_grad = self.Q[0, :] * self.EET[(id(ew), id(ev))] / _loss
+                    elif not EET_bool[mykey]:
+                        _e = E[mykey].reshape(self.d, 1)
+                        EET_bool[mykey] = True
+                        EET[mykey] = _e * np.transpose(_e)
+                    _same_step_grad = Q_row_1 * EET[mykey] / _loss
                     same_grad.append(_same_step_grad)
-
                 diff_grad = np.mean(diff_grad, axis=0)
                 same_grad = np.mean(same_grad, axis=0)
-
                 self.Q[0, :] -= self.lr * (-1. * self.alpha * diff_grad + (1.-self.alpha) * same_grad)
                 steps_same_loss.append(np.mean(SAME_LOSS))
                 steps_diff_loss.append(np.mean(DIFF_LOSS))
@@ -169,11 +180,13 @@ if __name__ == "__main__":
 
     map(lambda x: random.shuffle(x), [pos_words, neg_words])
     pos_vecs, neg_vecs = map(lambda x: emblookup(x, myword2vec), [pos_words, neg_words])
-    pos_vecs = pos_vecs[:5]
-    neg_vecs = neg_vecs[:5]
+    pos_vecs = pos_vecs[:20]
+    neg_vecs = neg_vecs[:20]
     print (len(pos_vecs), len(neg_vecs))
 
     assert len(pos_vecs) > 0
     assert len(neg_vecs) > 0
+    a = time.time()
     mydensifier = Densifier(400, args.OUT_DIM, args.LR, args.BATCH_SIZE)
     mydensifier.train(args.EPC, pos_vecs, neg_vecs, args.SAVE_TO, args.SAVE_EVERY)
+    print ("Time ellapsed: {}".format(time.time()-a))
