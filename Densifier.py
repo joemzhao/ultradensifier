@@ -54,18 +54,15 @@ class Densifier(object):
         self.batch_size = batch_size
         self.alpha = 0.4
 
-    def _gradient(self, loss, vec_diff):
-        if loss == 0.:
-            print ("WARNING: check if there are replicated seed words!")
-            return self.zeros_d[0, :]
-        return self.Q[0, :] * vec_diff * np.transpose(vec_diff) / loss
-
     def train(self, num_epoch, pos_vecs, neg_vecs, save_to, save_every):
         bs = self.batch_size
         save_step = 0
         diff_ps = list(itertools.product(pos_vecs, neg_vecs))
         same_ps = list(itertools.combinations(pos_vecs, 2)) + \
                   list(itertools.combinations(neg_vecs, 2))
+        self.E, self.EET = {}, {} # EET is computed in the first pass
+        for (ew, ev) in diff_ps+same_ps:
+            self.E[(id(ew), id(ev))] = np.asarray(ew) - np.asarray(ev)
         for e in xrange(num_epoch):
             random.shuffle(diff_ps)
             random.shuffle(same_ps)
@@ -76,27 +73,38 @@ class Densifier(object):
                 steps_orth += 1
                 steps_print += 1
                 save_step += 1
-                diff_grad, same_grad = [], []
 
-                EW, EV = [], []
-                for ew, ev in mini_diff:
-                    EW.append(np.asarray(ew))
-                    EV.append(np.asarray(ev))
-                VEC_DIFF = np.asarray(EW) - np.asarray(EV)
+                VEC_DIFF, diff_grad= [], []
+                for (ew, ev) in mini_diff:
+                    VEC_DIFF.append(self.E[(id(ew), id(ev))])
+                VEC_DIFF = np.asarray(VEC_DIFF)
                 DIFF_LOSS = np.absolute(VEC_DIFF * self.Q[0, :].reshape(self.d,1))
-                for idx in range(len(EW)):
-                    diff_grad_step = self._gradient(DIFF_LOSS[idx][0,0], VEC_DIFF[idx].reshape(self.d, 1))
-                    diff_grad.append(diff_grad_step)
+                for idx, (ew, ev) in enumerate(mini_diff):
+                    _loss = DIFF_LOSS[idx]
+                    if _loss == 0:
+                        diff_grad.append(self.zeros_d[0, :])
+                        continue
+                    elif (id(ew), id(ev)) not in self.EET:
+                        _e = self.E[(id(ew), id(ev))].reshape(self.d, 1)
+                        self.EET[(id(ew), id(ev))] = _e * np.transpose(_e)
+                    _diff_step_grad = self.Q[0, :] * self.EET[(id(ew), id(ev))] / _loss
+                    diff_grad.append(_diff_step_grad)
 
-                EW, EV = [], []
-                for ew, ev in mini_same:
-                    EW.append(np.asarray(ew))
-                    EV.append(np.asarray(ev))
-                VEC_SAME = np.asarray(EW) - np.asarray(EV)
+                VEC_SAME, same_grad = [], []
+                for (ew, ev) in mini_same:
+                    VEC_SAME.append(self.E[(id(ew), id(ev))])
+                VEC_SAME = np.asarray(VEC_SAME)
                 SAME_LOSS = np.absolute(VEC_SAME * self.Q[0, :].reshape(self.d,1))
-                for idx in range(len(EW)):
-                    same_grad_step = self._gradient(SAME_LOSS[idx][0,0], VEC_SAME[idx].reshape(self.d, 1))
-                    same_grad.append(same_grad_step)
+                for idx, (ew, ev) in enumerate(mini_same):
+                    _loss = SAME_LOSS[idx]
+                    if _loss == 0:
+                        same_grad.append(self.zeros_d[0, :])
+                        continue
+                    elif (id(ew), id(ev)) not in self.EET:
+                        _e = self.E[(id(ew), id(ev))].reshape(self.d, 1)
+                        self.EET[(id(ew), id(ev))] = _e * np.transpose(_e)
+                    _same_step_grad = self.Q[0, :] * self.EET[(id(ew), id(ev))] / _loss
+                    same_grad.append(_same_step_grad)
 
                 diff_grad = np.mean(diff_grad, axis=0)
                 same_grad = np.mean(same_grad, axis=0)
@@ -121,7 +129,6 @@ class Densifier(object):
                     self.save(save_to)
                     print ("Model saved! Step: {}".format(save_step))
             print ("="*25 + " one epoch finished! ({}) ".format(e) + "="*25)
-#            self.lr *= 0.99
         print ("Training finished ...")
         self.save(save_to)
 
@@ -151,23 +158,22 @@ if __name__ == "__main__":
     parser.add_argument("--OUT_DIM", type=int, default=1)
     parser.add_argument("--BIBLE_SEED_EMB", type=int, default=1)
     parser.add_argument("--BATCH_SIZE", type=int, default=100)
-    parser.add_argument("--EMB_SPACE", type=str, default="embeddings/twitter_emb_400.vec")
+    parser.add_argument("--EMB_SPACE", type=str, default="embeddings/mybible_400.vec")
     parser.add_argument("--SAVE_EVERY", type=int, default=1000)
     parser.add_argument("--SAVE_TO", type=str, default="trained_densifier.pkl")
     args = parser.parse_args()
 
-    pos_words, neg_words = parse_words(add_bib=False)
+    pos_words, neg_words = parse_words(add_bib=True)
     myword2vec = word2vec(args.EMB_SPACE)
     print ("Finish loading embedding ...")
 
     map(lambda x: random.shuffle(x), [pos_words, neg_words])
     pos_vecs, neg_vecs = map(lambda x: emblookup(x, myword2vec), [pos_words, neg_words])
-    pos_vecs = pos_vecs[:100]
-    neg_vecs = neg_vecs[:100]
+    pos_vecs = pos_vecs[:5]
+    neg_vecs = neg_vecs[:5]
     print (len(pos_vecs), len(neg_vecs))
 
     assert len(pos_vecs) > 0
     assert len(neg_vecs) > 0
     mydensifier = Densifier(400, args.OUT_DIM, args.LR, args.BATCH_SIZE)
-    mydensifier.train(args.EPC, np.asarray(pos_vecs), np.asarray(neg_vecs), args.SAVE_TO, args.SAVE_EVERY)
-    # EET = np.einsum('ij,ik->ijk', VEC_DIFF, VEC_DIFF)
+    mydensifier.train(args.EPC, pos_vecs, neg_vecs, args.SAVE_TO, args.SAVE_EVERY)
