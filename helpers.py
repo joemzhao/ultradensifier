@@ -1,25 +1,14 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
-from __future__ import absolute_import
 from __future__ import division
 
 from six.moves import xrange
 from sys import exit
 from multiprocessing import Pool
-from sklearn.metrics.pairwise import cosine_similarity as coss
 
-import cPickle as pickle
-import tqdm
 import numpy as np
 import scipy
 import math
-
-
-seed = 3
-
-
-def mycossim(v1, v2):
-    return coss([v1], [v2])[0][0]
 
 
 def normalizer(myvector):
@@ -72,7 +61,7 @@ def word2vec(emb_path):
     word2vec = {}
     pool = Pool(4)
     with open(emb_path, "r") as f:
-        pairs = pool.map(line_process, tqdm.tqdm(f.readlines()[1:]))
+        pairs = pool.map(line_process, f.readlines()[1:])
     pool.close()
     pool.join()
     _pairs = []

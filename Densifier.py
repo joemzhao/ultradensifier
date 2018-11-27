@@ -3,15 +3,16 @@ from __future__ import division
 
 import os
 import itertools
-import copy
-import time
 import sys
+import random
 
+random.seed(3)
 os.environ["MKL_NUM_THREADS"] = "40"
 os.environ["NUMEXPR_NUM_THREADS"] = "40"
 os.environ["OMP_NUM_THREADS"] = "40"
 
 from helpers import *
+from sys import exit
 
 
 def parse_words(add_bib):
@@ -136,20 +137,13 @@ class Densifier(object):
 
 
 if __name__ == "__main__":
-    from gensim.models import KeyedVectors
-    from sys import exit
-
     import argparse
-    import random
-
-    random.seed(3)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--LR", type=float, default=5.)
     parser.add_argument("--alpha", type=float, default=.5)
     parser.add_argument("--EPC", type=int, default=2)
     parser.add_argument("--OUT_DIM", type=int, default=1)
-    parser.add_argument("--BIBLE_SEED_EMB", type=int, default=1)
     parser.add_argument("--BATCH_SIZE", type=int, default=100)
     parser.add_argument("--EMB_SPACE", type=str, default="embeddings/twitter_emb_400.vec")
     parser.add_argument("--SAVE_EVERY", type=int, default=1000)
