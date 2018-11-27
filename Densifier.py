@@ -2,16 +2,16 @@ from __future__ import print_function
 from __future__ import division
 
 import os
+import itertools
+import copy
+import time
+import sys
+
 os.environ["MKL_NUM_THREADS"] = "40"
 os.environ["NUMEXPR_NUM_THREADS"] = "40"
 os.environ["OMP_NUM_THREADS"] = "40"
 
 from helpers import *
-
-import tqdm
-import itertools
-import copy
-import time
 
 
 def parse_words(add_bib):
@@ -31,7 +31,7 @@ def parse_words(add_bib):
     return pos, neg
 
 
-def batches(it, size=16):
+def batches(it, size):
     batch = []
     for item in it:
         batch.append(item)
@@ -42,17 +42,16 @@ def batches(it, size=16):
 
 
 class Densifier(object):
-    def __init__(self, d, ds, lr, batch_size, seed=3):
+    def __init__(self, alpha, d, ds, lr, batch_size, seed=3):
         self.d = d
         self.ds = ds
         self.Q = np.matrix(scipy.stats.ortho_group.rvs(d, random_state=seed))
-        self.Q[1:, :] = 0.
         self.P = np.matrix(np.eye(ds, d))
         self.D = np.transpose(self.P) * self.P
         self.zeros_d = np.matrix(np.zeros((self.d, self.d)))
         self.lr = lr
         self.batch_size = batch_size
-        self.alpha = 0.5
+        self.alpha = alpha
 
     def _gradient(self, loss, vec_diff):
         if loss == 0.:
@@ -115,7 +114,7 @@ class Densifier(object):
                         print (np.mean(steps_same_loss))
                         print (self.lr)
                     steps_same_loss, steps_diff_loss = [], []
-                if steps_orth % 1 == 0:
+                if steps_orth % sys.maxint == 0:
                     self.Q = Densifier.make_orth(self.Q)
                 if save_step % save_every == 0:
                     self.save(save_to)
@@ -147,6 +146,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--LR", type=float, default=5.)
+    parser.add_argument("--alpha", type=float, default=.5)
     parser.add_argument("--EPC", type=int, default=2)
     parser.add_argument("--OUT_DIM", type=int, default=1)
     parser.add_argument("--BIBLE_SEED_EMB", type=int, default=1)
@@ -162,11 +162,13 @@ if __name__ == "__main__":
 
     map(lambda x: random.shuffle(x), [pos_words, neg_words])
     pos_vecs, neg_vecs = map(lambda x: emblookup(x, myword2vec), [pos_words, neg_words])
-    pos_vecs = pos_vecs[:100]
-    neg_vecs = neg_vecs[:100]
-    print (len(pos_vecs), len(neg_vecs))
 
     assert len(pos_vecs) > 0
     assert len(neg_vecs) > 0
     mydensifier = Densifier(400, args.OUT_DIM, args.LR, args.BATCH_SIZE)
-    mydensifier.train(args.EPC, np.asarray(pos_vecs), np.asarray(neg_vecs), args.SAVE_TO, args.SAVE_EVERY)
+    mydensifier.train(args.EPC,
+                      args.alpha,
+                      pos_vecs,
+                      neg_vecs,
+                      args.SAVE_TO,
+                      args.SAVE_EVERY)
