@@ -52,7 +52,7 @@ class Densifier(object):
         self.zeros_d = np.matrix(np.zeros((self.d, self.d)))
         self.lr = lr
         self.batch_size = batch_size
-        self.alpha = 0.4
+        self.alpha = 0.5
 
     def _gradient(self, loss, vec_diff):
         if loss == 0.:
@@ -101,7 +101,7 @@ class Densifier(object):
                 diff_grad = np.mean(diff_grad, axis=0)
                 same_grad = np.mean(same_grad, axis=0)
 
-                self.Q[0, :] -= self.lr * (-1. * self.alpha * diff_grad + (1.-self.alpha) * same_grad)
+                self.Q[0, :] -= self.lr * (-1. * self.alpha * diff_grad * 2. + (1.-self.alpha) * same_grad * 2.)
                 steps_same_loss.append(np.mean(SAME_LOSS))
                 steps_diff_loss.append(np.mean(DIFF_LOSS))
                 if steps_print % 10 == 0:
@@ -109,19 +109,19 @@ class Densifier(object):
                     try:
                         print ("Diff-loss: {:4f}, Same-loss: {:4f}, LR: {:4f}".format(
                         np.mean(steps_diff_loss), np.mean(steps_same_loss), self.lr))
+                        print (np.sum(self.Q))
                     except:
                         print (np.mean(steps_diff_loss))
                         print (np.mean(steps_same_loss))
                         print (self.lr)
                     steps_same_loss, steps_diff_loss = [], []
-                if steps_orth % 10 == 0:
+                if steps_orth % 1 == 0:
                     self.Q = Densifier.make_orth(self.Q)
-                    self.lr *= 0.999
                 if save_step % save_every == 0:
                     self.save(save_to)
                     print ("Model saved! Step: {}".format(save_step))
             print ("="*25 + " one epoch finished! ({}) ".format(e) + "="*25)
-#            self.lr *= 0.99
+            self.lr *= 0.99
         print ("Training finished ...")
         self.save(save_to)
 
@@ -170,4 +170,3 @@ if __name__ == "__main__":
     assert len(neg_vecs) > 0
     mydensifier = Densifier(400, args.OUT_DIM, args.LR, args.BATCH_SIZE)
     mydensifier.train(args.EPC, np.asarray(pos_vecs), np.asarray(neg_vecs), args.SAVE_TO, args.SAVE_EVERY)
-    # EET = np.einsum('ij,ik->ijk', VEC_DIFF, VEC_DIFF)
