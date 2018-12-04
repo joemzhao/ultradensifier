@@ -36,12 +36,14 @@ python Densifier.py
 
 ### Results
 
-Using the same Twitter embedding space in  _Rothe et al. 2016_, these codes perform roughly the same to the  [TensorFlow implementation](https://github.com/JULIELab/wordEmotions) -- 0.48 v.s. 0.47 of kendall's tau on the SemEval2015 10B sentiment analysis task, which are unfortunately both lower than 0.65 reported by the original author. I haven't found potential bugs responsible to this performance gap -- if you noticed them please let me know.
+Using the same Twitter embedding space in  _Rothe et al. 2016_, these codes perform roughly the same to the  [TensorFlow implementation](https://github.com/JULIELab/wordEmotions) --  ~~0.48 v.s. 0.47 of kendall's tau on the SemEval2015 10B sentiment analysis task, which are unfortunately both lower than 0.65 reported by the original author~~ 0.63 which are close to the reported value 0.65. Note, need to carry out evaluations on the joint vocabulary.
+
+To replicate results in other languages and domains, the original test sets are required but I did not find them.
 
 ### Some Discussion
 
 - **Efficiency**:  _Rothe el al. 2016_ reported that all experiments were finished in 5 mins. Unfortunately I am not able to achieve this speed as it takes me ~0.2s to compute an SVD of a 400 x 400 dense matrix using NumPy. Autograd frameworks can take more time.
-- **Orthogonal Constraint**: _Buechel et al._ reports that enforcing the orthogonal constraint introduces no difference on performance. Similar observations occur in this implementation too. The constraint regularizes optimization steps go along on the surface of the cube, but probably is not significant helpful when the evaluation metric is ranking based.
+- **Orthogonal Constraint**: _Buechel et al. 2018_ reports that enforcing the orthogonal constraint introduces no difference on performance. Similar observations occur in this implementation. Releasing the orthogonal constraint means we now can touch the norm of $Q$ so probably we need to regularize the $l2$ norm of $PQ$ such that the loss does not go to $-\infty$. Again, no improvements are observed in this case either. The orthorgonal constraint regularizes optimization steps go along the surface of the cube, but probably is not significantly helpful when the evaluation metric is ranking based. 
 
 ### References
 
