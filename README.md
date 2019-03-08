@@ -79,6 +79,3 @@ Papers referred in this implementation:
 
 ```
 
-### Contact
-
-mengjie.zhao@cis.lmu.de
